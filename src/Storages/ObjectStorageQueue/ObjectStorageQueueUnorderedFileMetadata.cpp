@@ -18,6 +18,8 @@ ObjectStorageQueueUnorderedFileMetadata::ObjectStorageQueueUnorderedFileMetadata
     size_t max_loading_retries_,
     std::atomic<size_t> & metadata_ref_count_,
     bool use_persistent_processing_nodes_,
+    const String & keeper_name_,
+    ContextPtr context_,
     LoggerPtr log_)
     : ObjectStorageQueueIFileMetadata(
         path_,
@@ -28,6 +30,8 @@ ObjectStorageQueueUnorderedFileMetadata::ObjectStorageQueueUnorderedFileMetadata
         max_loading_retries_,
         metadata_ref_count_,
         use_persistent_processing_nodes_,
+        keeper_name_,
+        std::move(context_),
         log_)
 {
 }
@@ -37,7 +41,7 @@ ObjectStorageQueueUnorderedFileMetadata::prepareProcessingRequestsImpl(
     Coordination::Requests & requests,
     const std::string & processing_id)
 {
-    auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(log);
+    auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log);
     processor_info = getProcessorInfo(processing_id);
 
     SetProcessingResponseIndexes result;
@@ -72,7 +76,7 @@ std::pair<bool, ObjectStorageQueueIFileMetadata::FileStatus::State> ObjectStorag
     auto zk_retry = ObjectStorageQueueMetadata::getKeeperRetriesControl(log);
     zk_retry.retryLoop([&]
     {
-        auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(log);
+        auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log);
         std::string data;
         /// If it is a retry, we could have failed after actually successfully executing the requests.
         /// So here we check if we succeeded by checking `processor_info` of the processing node.
@@ -142,7 +146,7 @@ void ObjectStorageQueueUnorderedFileMetadata::filterOutProcessedAndFailed(
     zkutil::ZooKeeper::MultiTryGetResponse responses;
     ObjectStorageQueueMetadata::getKeeperRetriesControl(log_).retryLoop([&]
     {
-        responses = ObjectStorageQueueMetadata::getZooKeeper(log_)->tryGet(check_paths);
+        responses = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log_)->tryGet(check_paths);
     });
 
     auto check_code = [&](auto code, const std::string & path)

@@ -2,6 +2,7 @@
 #include <Core/Types.h>
 #include <Common/logger_useful.h>
 #include <Common/ZooKeeper/ZooKeeper.h>
+#include <Interpreters/Context_fwd.h>
 
 namespace DB
 {
@@ -63,6 +64,8 @@ public:
         size_t max_loading_retries_,
         std::atomic<size_t> & metadata_ref_count_,
         bool use_persistent_processing_nodes_,
+        String keeper_name_,
+        ContextPtr context_,
         LoggerPtr log_);
 
     virtual ~ObjectStorageQueueIFileMetadata();
@@ -155,6 +158,8 @@ protected:
     const size_t max_loading_retries;
     const std::atomic<size_t> & metadata_ref_count;
     const bool use_persistent_processing_nodes;
+    const String keeper_name;
+    const ContextPtr context;
 
     const std::string processing_node_path;
     const std::string processed_node_path;

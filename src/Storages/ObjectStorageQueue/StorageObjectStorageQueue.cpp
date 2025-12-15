@@ -247,7 +247,9 @@ StorageObjectStorageQueue::StorageObjectStorageQueue(
     , WithContext(context_)
     , type(configuration_->getType())
     , engine_name(engine_args->engine->name)
-    , zk_path(chooseZooKeeperPath(getContext(), table_id_, context_->getSettingsRef(), *queue_settings_))
+    , keeper_name(chooseZooKeeperPath(getContext(), table_id_, context_->getSettingsRef(), *queue_settings_).keeper_name)
+    , zk_path(chooseZooKeeperPath(getContext(), table_id_, context_->getSettingsRef(), *queue_settings_).zookeeper_path)
+    , zookeeper_key(fmt::format("{}:{}", keeper_name, zk_path.string()))
     , enable_logging_to_queue_log((*queue_settings_)[ObjectStorageQueueSetting::enable_logging_to_queue_log])
     , polling_min_timeout_ms((*queue_settings_)[ObjectStorageQueueSetting::polling_min_timeout_ms])
     , polling_max_timeout_ms((*queue_settings_)[ObjectStorageQueueSetting::polling_max_timeout_ms])
@@ -316,16 +318,18 @@ StorageObjectStorageQueue::StorageObjectStorageQueue(
     setVirtuals(VirtualColumnUtils::getVirtualsForFileLikeStorage(storage_metadata.columns, context_));
     setInMemoryMetadata(storage_metadata);
 
-    LOG_INFO(log, "Using zookeeper path: {}", zk_path.string());
+    LOG_INFO(log, "Using zookeeper path: {} on keeper {}", zk_path.string(), keeper_name);
 
     auto table_metadata = ObjectStorageQueueMetadata::syncWithKeeper(
-        zk_path, *queue_settings_, storage_metadata.getColumns(), configuration_->format, context_, is_attach, log);
+        zk_path, keeper_name, *queue_settings_, storage_metadata.getColumns(), configuration_->format, context_, is_attach, log);
 
     ObjectStorageType storage_type = engine_name == "S3Queue" ? ObjectStorageType::S3 : ObjectStorageType::Azure;
 
     temp_metadata = std::make_unique<ObjectStorageQueueMetadata>(
         storage_type,
         zk_path,
+        keeper_name,
+        getContext(),
         std::move(table_metadata),
         (*queue_settings_)[ObjectStorageQueueSetting::cleanup_interval_min_ms],
         (*queue_settings_)[ObjectStorageQueueSetting::cleanup_interval_max_ms],
@@ -353,7 +357,7 @@ void StorageObjectStorageQueue::startup()
     /// Create a persistent node for the table under /registry node.
     bool created_new_metadata = false;
     files_metadata = ObjectStorageQueueMetadataFactory::instance().getOrCreate(
-        zk_path,
+        zookeeper_key,
         std::move(temp_metadata),
         getStorageID(),
         created_new_metadata);
@@ -367,7 +371,7 @@ void StorageObjectStorageQueue::startup()
             /// if it was just created by us (created_new_metadata == true)
             /// and if /registry is empty (no table was concurrently created).
             ObjectStorageQueueMetadataFactory::instance().remove(
-                zk_path,
+                zookeeper_key,
                 getStorageID(),
                 /* is_drop */created_new_metadata,
                 /* keep_data_in_keeper */false);
@@ -442,7 +446,7 @@ void StorageObjectStorageQueue::shutdown(bool is_drop)
             tryLogCurrentException(log);
         }
 
-        ObjectStorageQueueMetadataFactory::instance().remove(zk_path, getStorageID(), is_drop, keep_data_in_keeper);
+        ObjectStorageQueueMetadataFactory::instance().remove(zookeeper_key, getStorageID(), is_drop, keep_data_in_keeper);
 
         files_metadata.reset();
     }
@@ -1381,7 +1385,7 @@ void StorageObjectStorageQueue::alter(
 
 zkutil::ZooKeeperPtr StorageObjectStorageQueue::getZooKeeper() const
 {
-    return getContext()->getZooKeeper();
+    return getContext()->getDefaultOrAuxiliaryZooKeeper(keeper_name);
 }
 
 const ObjectStorageQueueTableMetadata & StorageObjectStorageQueue::getTableMetadata() const
@@ -1434,7 +1438,10 @@ ObjectStorageQueueSettings StorageObjectStorageQueue::getSettings() const
     const auto & table_metadata = getTableMetadata();
     settings[ObjectStorageQueueSetting::mode] = table_metadata.mode;
     settings[ObjectStorageQueueSetting::after_processing] = table_metadata.after_processing;
-    settings[ObjectStorageQueueSetting::keeper_path] = zk_path;
+    if (keeper_name == "default")
+        settings[ObjectStorageQueueSetting::keeper_path] = zk_path.string();
+    else
+        settings[ObjectStorageQueueSetting::keeper_path] = fmt::format("{}:{}", keeper_name, zk_path.string());
     settings[ObjectStorageQueueSetting::loading_retries] = table_metadata.loading_retries;
     settings[ObjectStorageQueueSetting::processing_threads_num] = table_metadata.processing_threads_num;
     settings[ObjectStorageQueueSetting::parallel_inserts] = table_metadata.parallel_inserts;
@@ -1490,7 +1497,7 @@ void StorageObjectStorageQueue::checkTableCanBeRenamed(const StorageID & new_nam
     }
 }
 
-String StorageObjectStorageQueue::chooseZooKeeperPath(
+StorageObjectStorageQueue::KeeperPathInfo StorageObjectStorageQueue::chooseZooKeeperPath(
     const ContextPtr & context_,
     const StorageID & table_id,
     const Settings & settings,
@@ -1501,6 +1508,11 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
     /// We also use keeper_path to determine whether we move it between databases, since the default path contains UUID of the database.
 
     std::string zk_path_prefix = settings[Setting::s3queue_default_zookeeper_path].value;
+    std::string keeper_name = zkutil::extractZooKeeperName(zk_path_prefix);
+    if (zk_path_prefix.empty())
+        zk_path_prefix = "/";
+
+    zk_path_prefix = zkutil::extractZooKeeperPath(zk_path_prefix, true);
     if (zk_path_prefix.empty())
         zk_path_prefix = "/";
 
@@ -1508,7 +1520,13 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
     if (queue_settings[ObjectStorageQueueSetting::keeper_path].changed)
     {
         /// We do not add table uuid here on purpose.
-        result_zk_path = fs::path(zk_path_prefix) / queue_settings[ObjectStorageQueueSetting::keeper_path].value;
+        const auto keeper_path_setting = queue_settings[ObjectStorageQueueSetting::keeper_path].value;
+        const auto keeper_path_keeper_name = zkutil::extractZooKeeperName(keeper_path_setting);
+
+        if (!keeper_path_keeper_name.empty())
+            keeper_name = keeper_path_keeper_name;
+
+        result_zk_path = fs::path(zk_path_prefix) / zkutil::extractZooKeeperPath(keeper_path_setting, true);
 
         Macros::MacroExpansionInfo info;
         info.table_id.uuid = table_id.uuid;
@@ -1521,7 +1539,14 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
 
         result_zk_path = fs::path(zk_path_prefix) / toString(database_uuid) / toString(table_id.uuid);
     }
-    return zkutil::extractZooKeeperPath(result_zk_path, true);
+
+    if (keeper_name.empty())
+        keeper_name = "default";
+
+    KeeperPathInfo result;
+    result.keeper_name = keeper_name;
+    result.zookeeper_path = zkutil::extractZooKeeperPath(result_zk_path, true);
+    return result;
 }
 
 }

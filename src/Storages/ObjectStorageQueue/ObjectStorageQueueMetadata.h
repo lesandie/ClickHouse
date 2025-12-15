@@ -8,6 +8,7 @@
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueIFileMetadata.h>
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueOrderedFileMetadata.h>
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueTableMetadata.h>
+#include <Interpreters/Context_fwd.h>
 #include <Common/ZooKeeper/ZooKeeper.h>
 #include <Common/ZooKeeper/ZooKeeperRetries.h>
 #include <Common/SettingsChanges.h>
@@ -57,6 +58,8 @@ public:
     ObjectStorageQueueMetadata(
         ObjectStorageType storage_type_,
         const fs::path & zookeeper_path_,
+        const String & keeper_name_,
+        const ContextPtr & context_,
         const ObjectStorageQueueTableMetadata & table_metadata_,
         size_t cleanup_interval_min_ms_,
         size_t cleanup_interval_max_ms_,
@@ -81,6 +84,7 @@ public:
     /// because its default depends on the CPU cores on the server);
     static ObjectStorageQueueTableMetadata syncWithKeeper(
         const fs::path & zookeeper_path,
+        const String & keeper_name,
         const ObjectStorageQueueSettings & settings,
         const ColumnsDescription & columns,
         const std::string & format,
@@ -147,7 +151,11 @@ public:
     /// Acquire (take unique ownership of) bucket for processing.
     ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr tryAcquireBucket(const Bucket & bucket);
 
-    static std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(LoggerPtr log);
+    std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(LoggerPtr log) const;
+    static std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(
+        const ContextPtr & context,
+        const String & keeper_name,
+        LoggerPtr log);
     static ZooKeeperRetriesControl getKeeperRetriesControl(LoggerPtr log);
 
     /// Set local ref count for metadata.
@@ -176,8 +184,11 @@ private:
     ObjectStorageQueueTableMetadata table_metadata;
     const ObjectStorageType storage_type;
     const ObjectStorageQueueMode mode;
+    const String keeper_name;
     const fs::path zookeeper_path;
     const size_t keeper_multiread_batch_size;
+
+    ContextWeakPtr context;
 
     std::atomic<size_t> cleanup_interval_min_ms;
     std::atomic<size_t> cleanup_interval_max_ms;

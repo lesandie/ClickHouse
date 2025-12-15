@@ -132,6 +132,8 @@ private:
 ObjectStorageQueueMetadata::ObjectStorageQueueMetadata(
     ObjectStorageType storage_type_,
     const fs::path & zookeeper_path_,
+    const String & keeper_name_,
+    const ContextPtr & context_,
     const ObjectStorageQueueTableMetadata & table_metadata_,
     size_t cleanup_interval_min_ms_,
     size_t cleanup_interval_max_ms_,
@@ -141,6 +143,7 @@ ObjectStorageQueueMetadata::ObjectStorageQueueMetadata(
     : table_metadata(table_metadata_)
     , storage_type(storage_type_)
     , mode(table_metadata.getMode())
+    , keeper_name(keeper_name_)
     , zookeeper_path(zookeeper_path_)
     , keeper_multiread_batch_size(keeper_multiread_batch_size_)
     , cleanup_interval_min_ms(cleanup_interval_min_ms_)
@@ -151,6 +154,7 @@ ObjectStorageQueueMetadata::ObjectStorageQueueMetadata(
     , log(getLogger("StorageObjectStorageQueue(" + zookeeper_path_.string() + ")"))
     , local_file_statuses(std::make_shared<LocalFileStatuses>())
 {
+    context = context_;
     LOG_TRACE(
         log, "Mode: {}, buckets: {}, processing threads: {}, result buckets num: {}, use persistent processing nodes: {}",
         table_metadata.mode, table_metadata.buckets.load(),
@@ -162,20 +166,31 @@ ObjectStorageQueueMetadata::~ObjectStorageQueueMetadata()
     shutdown();
 }
 
-ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(LoggerPtr log)
+ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(
+    const ContextPtr & context,
+    const String & keeper_name,
+    LoggerPtr log)
 {
-    auto context = Context::getGlobalContextInstance();
-    auto zk_client = context->getZooKeeper();
-    if (context->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability] != 0.0)
+    auto context_ptr = context ? context : Context::getGlobalContextInstance();
+    auto zk_client = context_ptr->getDefaultOrAuxiliaryZooKeeper(keeper_name);
+    if (context_ptr->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability] != 0.0)
     {
         return ZooKeeperWithFaultInjection::createInstance(
-            context->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability],
+            context_ptr->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability],
             /* seed */0,
             zk_client,
             "S3Queue",
             log);
     }
     return std::make_shared<ZooKeeperWithFaultInjection>(zk_client);
+}
+
+ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(LoggerPtr log) const
+{
+    auto context_ptr = context.lock();
+    if (!context_ptr)
+        context_ptr = Context::getGlobalContextInstance();
+    return getZooKeeper(context_ptr, keeper_name, log);
 }
 
 ZooKeeperRetriesControl ObjectStorageQueueMetadata::getKeeperRetriesControl(LoggerPtr log)
@@ -239,6 +254,9 @@ ObjectStorageQueueMetadata::FileMetadataPtr ObjectStorageQueueMetadata::getFileM
 {
     chassert(metadata_ref_count);
     auto file_status = local_file_statuses->get(path, /* create */true);
+    auto context_ptr = context.lock();
+    if (!context_ptr)
+        context_ptr = Context::getGlobalContextInstance();
     switch (mode)
     {
         case ObjectStorageQueueMode::ORDERED:
@@ -251,6 +269,8 @@ ObjectStorageQueueMetadata::FileMetadataPtr ObjectStorageQueueMetadata::getFileM
                 table_metadata.loading_retries,
                 *metadata_ref_count,
                 use_persistent_processing_nodes,
+                keeper_name,
+                context_ptr,
                 log);
         case ObjectStorageQueueMode::UNORDERED:
             return std::make_shared<ObjectStorageQueueUnorderedFileMetadata>(
@@ -260,6 +280,8 @@ ObjectStorageQueueMetadata::FileMetadataPtr ObjectStorageQueueMetadata::getFileM
                 table_metadata.loading_retries,
                 *metadata_ref_count,
                 use_persistent_processing_nodes,
+                keeper_name,
+                context_ptr,
                 log);
     }
 }
@@ -437,6 +459,7 @@ void ObjectStorageQueueMetadata::migrateToBucketsInKeeper(size_t value)
 
 ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
     const fs::path & zookeeper_path,
+    const String & keeper_name,
     const ObjectStorageQueueSettings & settings,
     const ColumnsDescription & columns,
     const std::string & format,
@@ -469,7 +492,7 @@ ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
     const auto table_metadata_path = zookeeper_path / "metadata";
     bool warned = false;
 
-    zk_retries.retryLoop([&] { getZooKeeper(log)->createAncestors(zookeeper_path); });
+    zk_retries.retryLoop([&] { getZooKeeper(context, keeper_name, log)->createAncestors(zookeeper_path); });
 
     for (size_t i = 0; i < 1000; ++i)
     {
@@ -479,7 +502,7 @@ ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
         zk_retries.resetFailures();
         zk_retries.retryLoop([&]
         {
-            auto zk_client = getZooKeeper(log);
+            auto zk_client = getZooKeeper(context, keeper_name, log);
             std::optional<ObjectStorageQueueTableMetadata> metadata_from_zk;
             if (zk_client->exists(table_metadata_path))
             {

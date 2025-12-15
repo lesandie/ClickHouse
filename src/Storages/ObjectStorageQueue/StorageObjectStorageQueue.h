@@ -73,7 +73,13 @@ public:
     /// Used for system.s3(azure/etc)_queue_log.
     static UInt64 generateCommitID();
 
-    static String chooseZooKeeperPath(
+    struct KeeperPathInfo
+    {
+        String keeper_name;
+        fs::path zookeeper_path;
+    };
+
+    static KeeperPathInfo chooseZooKeeperPath(
         const ContextPtr & context_,
         const StorageID & table_id,
         const Settings & settings,
@@ -94,7 +100,9 @@ private:
 
     ObjectStorageType type;
     const std::string engine_name;
+    const std::string keeper_name;
     const fs::path zk_path;
+    const std::string zookeeper_key;
     const bool enable_logging_to_queue_log;
     mutable std::mutex mutex;
     UInt64 polling_min_timeout_ms TSA_GUARDED_BY(mutex);
