@@ -19,7 +19,7 @@ ObjectStorageQueueUnorderedFileMetadata::ObjectStorageQueueUnorderedFileMetadata
     std::atomic<size_t> & metadata_ref_count_,
     bool use_persistent_processing_nodes_,
     const String & keeper_name_,
-    ContextPtr context_,
+    const ContextPtr & context_,
     LoggerPtr log_)
     : ObjectStorageQueueIFileMetadata(
         path_,
@@ -31,7 +31,7 @@ ObjectStorageQueueUnorderedFileMetadata::ObjectStorageQueueUnorderedFileMetadata
         metadata_ref_count_,
         use_persistent_processing_nodes_,
         keeper_name_,
-        std::move(context_),
+        context_,
         log_)
 {
 }

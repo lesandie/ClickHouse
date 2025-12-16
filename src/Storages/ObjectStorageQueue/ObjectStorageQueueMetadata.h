@@ -8,10 +8,10 @@
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueIFileMetadata.h>
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueOrderedFileMetadata.h>
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueTableMetadata.h>
-#include <Interpreters/Context_fwd.h>
 #include <Common/ZooKeeper/ZooKeeper.h>
 #include <Common/ZooKeeper/ZooKeeperRetries.h>
 #include <Common/SettingsChanges.h>
+#include <Interpreters/Context_fwd.h>
 
 namespace fs = std::filesystem;
 namespace Poco { class Logger; }
@@ -84,16 +84,16 @@ public:
     /// because its default depends on the CPU cores on the server);
     static ObjectStorageQueueTableMetadata syncWithKeeper(
         const fs::path & zookeeper_path,
-        const String & keeper_name,
         const ObjectStorageQueueSettings & settings,
         const ColumnsDescription & columns,
         const std::string & format,
-        const ContextPtr & context,
+        const ContextPtr & keeper_context,
+        const String & keeper_name,
         bool is_attach,
         LoggerPtr log);
     /// Alter settings in keeper metadata
     /// (rewrites what we write in syncWithKeeper()).
-    void alterSettings(const SettingsChanges & changes, const ContextPtr & context);
+    void alterSettings(const SettingsChanges & changes, const ContextPtr & query_context);
 
     /// Get object storage type: s3, azure, local, etc.
     ObjectStorageType getType() const { return storage_type; }
@@ -151,14 +151,14 @@ public:
     /// Acquire (take unique ownership of) bucket for processing.
     ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr tryAcquireBucket(const Bucket & bucket);
 
-    std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(LoggerPtr log) const;
+    std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(LoggerPtr logger) const;
     ContextPtr getContext() const;
     const String & getKeeperName() const { return keeper_name; }
     static std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(
-        const ContextPtr & context,
+        const ContextPtr & context_ptr,
         const String & keeper_name,
-        LoggerPtr log);
-    static ZooKeeperRetriesControl getKeeperRetriesControl(LoggerPtr log);
+        LoggerPtr logger);
+    static ZooKeeperRetriesControl getKeeperRetriesControl(LoggerPtr logger);
 
     /// Set local ref count for metadata.
     void setMetadataRefCount(std::atomic<size_t> & ref_count_) { chassert(!metadata_ref_count); metadata_ref_count = &ref_count_; }

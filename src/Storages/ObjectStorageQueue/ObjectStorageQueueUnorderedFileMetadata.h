@@ -2,6 +2,7 @@
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueIFileMetadata.h>
 #include <filesystem>
 #include <Common/logger_useful.h>
+#include <Interpreters/Context_fwd.h>
 
 namespace DB
 {
@@ -19,7 +20,7 @@ public:
         std::atomic<size_t> & metadata_ref_count_,
         bool use_persistent_processing_nodes_,
         const String & keeper_name_,
-        ContextPtr context_,
+        const ContextPtr & context_,
         LoggerPtr log_);
 
     static std::vector<std::string> getMetadataPaths() { return {"processed", "failed", "processing", "persistent_processing"}; }

@@ -52,6 +52,7 @@ public:
     /// Registers table in keeper in persistent node.
     FilesMetadataPtr getOrCreate(
         const std::string & zookeeper_path,
+        const std::string & keeper_name,
         ObjectStorageQueueMetadataPtr metadata,
         const StorageID & storage_id,
         bool & created_new_metadata);
@@ -61,6 +62,7 @@ public:
     /// Unregisters table in keeper from persistent node.
     void remove(
         const std::string & zookeeper_path,
+        const std::string & keeper_name,
         const StorageID & storage_id,
         bool is_drop,
         bool keep_data_in_keeper);

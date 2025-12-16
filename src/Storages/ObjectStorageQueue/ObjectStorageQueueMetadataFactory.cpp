@@ -137,15 +137,17 @@ ObjectStorageQueueMetadataFactory & ObjectStorageQueueMetadataFactory::instance(
 
 ObjectStorageQueueMetadataFactory::FilesMetadataPtr ObjectStorageQueueMetadataFactory::getOrCreate(
     const std::string & zookeeper_path,
+    const std::string & keeper_name,
     ObjectStorageQueueMetadataPtr metadata,
     const StorageID & storage_id,
     bool & created_new_metadata)
 {
+    const std::string map_key = keeper_name + ":" + zookeeper_path;
     std::lock_guard lock(mutex);
-    auto it = metadata_by_path.find(zookeeper_path);
+    auto it = metadata_by_path.find(map_key);
     if (it == metadata_by_path.end())
     {
-        it = metadata_by_path.emplace(zookeeper_path, std::move(metadata)).first;
+        it = metadata_by_path.emplace(map_key, std::move(metadata)).first;
         it->second.metadata->setMetadataRefCount(*it->second.ref_count);
     }
     else
@@ -163,12 +165,14 @@ ObjectStorageQueueMetadataFactory::FilesMetadataPtr ObjectStorageQueueMetadataFa
 
 void ObjectStorageQueueMetadataFactory::remove(
     const std::string & zookeeper_path,
+    const std::string & keeper_name,
     const StorageID & storage_id,
     bool is_drop,
     bool keep_data_in_keeper)
 {
+    const std::string map_key = keeper_name + ":" + zookeeper_path;
     std::lock_guard lock(mutex);
-    auto it = metadata_by_path.find(zookeeper_path);
+    auto it = metadata_by_path.find(map_key);
 
     if (it == metadata_by_path.end())
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Metadata with zookeeper path {} does not exist", zookeeper_path);

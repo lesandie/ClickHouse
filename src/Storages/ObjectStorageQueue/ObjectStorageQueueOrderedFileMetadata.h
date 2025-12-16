@@ -2,6 +2,7 @@
 #include <Storages/ObjectStorageQueue/ObjectStorageQueueIFileMetadata.h>
 #include <Common/logger_useful.h>
 #include <Common/ZooKeeper/ZooKeeper.h>
+#include <Interpreters/Context_fwd.h>
 #include <filesystem>
 
 #include <boost/noncopyable.hpp>
@@ -32,7 +33,7 @@ public:
         std::atomic<size_t> & metadata_ref_count_,
         bool use_persistent_processing_nodes_,
         const String & keeper_name_,
-        ContextPtr context_,
+        const ContextPtr & context_,
         LoggerPtr log_);
 
     struct BucketHolder;
@@ -53,15 +54,18 @@ public:
 
     static std::vector<std::string> getMetadataPaths(size_t buckets_num);
 
-    static void migrateToBuckets(const std::string & zk_path, size_t value, size_t prev_value);
+    static void migrateToBuckets(
+        const std::string & zk_path,
+        size_t value,
+        size_t prev_value,
+        const ContextPtr & context,
+        const String & keeper_name);
 
     /// Return vector of indexes of filtered paths.
     static void filterOutProcessedAndFailed(
         std::vector<std::string> & paths,
         const std::filesystem::path & zk_path_,
         size_t buckets_num,
-        const String & keeper_name,
-        const ContextPtr & context,
         LoggerPtr log);
 
     void prepareProcessedAtStartRequests(Coordination::Requests & requests) override;
@@ -101,7 +105,7 @@ struct ObjectStorageQueueOrderedFileMetadata::BucketHolder : private boost::nonc
         const std::string & bucket_lock_path_,
         const std::string & processor_info_,
         const String & keeper_name_,
-        ContextPtr context_,
+        const ContextPtr & context_,
         LoggerPtr log_);
 
     ~BucketHolder();

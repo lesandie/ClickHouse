@@ -64,8 +64,8 @@ public:
         size_t max_loading_retries_,
         std::atomic<size_t> & metadata_ref_count_,
         bool use_persistent_processing_nodes_,
-        String keeper_name_,
-        ContextPtr context_,
+        const String & keeper_name_,
+        const ContextPtr & context_,
         LoggerPtr log_);
 
     virtual ~ObjectStorageQueueIFileMetadata();
@@ -181,6 +181,8 @@ protected:
     static NodeMetadata createNodeMetadata(const std::string & path, const std::string & exception = {}, size_t retries = 0);
 
     static std::string getProcessorInfo(const std::string & processor_id);
+
+    std::shared_ptr<ZooKeeperWithFaultInjection> getKeeper(LoggerPtr log) const;
 };
 
 }

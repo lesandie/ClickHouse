@@ -143,7 +143,7 @@ ObjectStorageQueueMetadata::ObjectStorageQueueMetadata(
     : table_metadata(table_metadata_)
     , storage_type(storage_type_)
     , mode(table_metadata.getMode())
-    , keeper_name(keeper_name_)
+    , keeper_name(keeper_name_.empty() ? "default" : keeper_name_)
     , zookeeper_path(zookeeper_path_)
     , keeper_multiread_batch_size(keeper_multiread_batch_size_)
     , cleanup_interval_min_ms(cleanup_interval_min_ms_)
@@ -167,39 +167,37 @@ ObjectStorageQueueMetadata::~ObjectStorageQueueMetadata()
 }
 
 ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(
-    const ContextPtr & context,
+    const ContextPtr & context_ptr,
     const String & keeper_name,
-    LoggerPtr log)
+    LoggerPtr logger)
 {
-    auto context_ptr = context ? context : Context::getGlobalContextInstance();
-    auto zk_client = context_ptr->getDefaultOrAuxiliaryZooKeeper(keeper_name);
-    if (context_ptr->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability] != 0.0)
+    auto context_to_use = context_ptr ? context_ptr : Context::getGlobalContextInstance();
+    auto zk_client = context_to_use->getDefaultOrAuxiliaryZooKeeper(keeper_name);
+    if (context_to_use->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability] != 0.0)
     {
         return ZooKeeperWithFaultInjection::createInstance(
-            context_ptr->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability],
+            context_to_use->getSettingsRef()[Setting::s3queue_keeper_fault_injection_probability],
             /* seed */0,
             zk_client,
             "S3Queue",
-            log);
+            logger);
     }
     return std::make_shared<ZooKeeperWithFaultInjection>(zk_client);
 }
 
 ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(LoggerPtr logger) const
 {
-    auto context_ptr = context.lock();
-    if (!context_ptr)
-        context_ptr = Context::getGlobalContextInstance();
+    auto context_ptr = getContext();
     return getZooKeeper(context_ptr, keeper_name, logger);
 }
 
-ZooKeeperRetriesControl ObjectStorageQueueMetadata::getKeeperRetriesControl(LoggerPtr log)
+ZooKeeperRetriesControl ObjectStorageQueueMetadata::getKeeperRetriesControl(LoggerPtr logger)
 {
     auto context = Context::getGlobalContextInstance();
     const auto & settings = context->getSettingsRef();
     return ZooKeeperRetriesControl{
         "S3Queue",
-        log,
+        logger,
         ZooKeeperRetriesInfo{
             settings[Setting::keeper_max_retries],
             settings[Setting::keeper_retry_initial_backoff_ms],
@@ -262,9 +260,7 @@ ObjectStorageQueueMetadata::FileMetadataPtr ObjectStorageQueueMetadata::getFileM
 {
     chassert(metadata_ref_count);
     auto file_status = local_file_statuses->get(path, /* create */true);
-    auto context_ptr = context.lock();
-    if (!context_ptr)
-        context_ptr = Context::getGlobalContextInstance();
+    auto context_ptr = getContext();
     switch (mode)
     {
         case ObjectStorageQueueMode::ORDERED:
@@ -307,17 +303,8 @@ ObjectStorageQueueMetadata::Bucket ObjectStorageQueueMetadata::getBucketForPath(
 ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr
 ObjectStorageQueueMetadata::tryAcquireBucket(const Bucket & bucket)
 {
-    auto context_ptr = context.lock();
-    if (!context_ptr)
-        context_ptr = Context::getGlobalContextInstance();
-
     return ObjectStorageQueueOrderedFileMetadata::tryAcquireBucket(
-        zookeeper_path,
-        bucket,
-        keeper_name,
-        context_ptr,
-        use_persistent_processing_nodes,
-        log);
+        zookeeper_path, bucket, keeper_name, getContext(), use_persistent_processing_nodes, log);
 }
 
 void ObjectStorageQueueMetadata::alterSettings(const SettingsChanges & changes, const ContextPtr & query_context)
@@ -470,18 +457,19 @@ void ObjectStorageQueueMetadata::migrateToBucketsInKeeper(size_t value)
 {
     chassert(table_metadata.buckets == 0 || table_metadata.buckets == 1);
     chassert(buckets_num == 1, "Buckets: " + toString(buckets_num));
-    ObjectStorageQueueOrderedFileMetadata::migrateToBuckets(zookeeper_path, value, /* prev_value */table_metadata.buckets);
+    ObjectStorageQueueOrderedFileMetadata::migrateToBuckets(
+        zookeeper_path, value, /* prev_value */table_metadata.buckets, getContext(), keeper_name);
     buckets_num = value;
     table_metadata.buckets = value;
 }
 
 ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
     const fs::path & zookeeper_path,
-    const String & keeper_name,
     const ObjectStorageQueueSettings & settings,
     const ColumnsDescription & columns,
     const std::string & format,
-    const ContextPtr & context,
+    const ContextPtr & keeper_context,
+    const String & keeper_name,
     bool is_attach,
     LoggerPtr log)
 {
@@ -510,7 +498,7 @@ ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
     const auto table_metadata_path = zookeeper_path / "metadata";
     bool warned = false;
 
-    zk_retries.retryLoop([&] { getZooKeeper(context, keeper_name, log)->createAncestors(zookeeper_path); });
+    zk_retries.retryLoop([&] { getZooKeeper(keeper_context, keeper_name, log)->createAncestors(zookeeper_path); });
 
     for (size_t i = 0; i < 1000; ++i)
     {
@@ -520,7 +508,7 @@ ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
         zk_retries.resetFailures();
         zk_retries.retryLoop([&]
         {
-            auto zk_client = getZooKeeper(context, keeper_name, log);
+            auto zk_client = getZooKeeper(keeper_context, keeper_name, log);
             std::optional<ObjectStorageQueueTableMetadata> metadata_from_zk;
             if (zk_client->exists(table_metadata_path))
             {
@@ -535,7 +523,7 @@ ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
                 return;
             }
 
-            const auto & settings_ref = context->getSettingsRef();
+            const auto & settings_ref = keeper_context->getSettingsRef();
             if (!warned && settings_ref[Setting::cloud_mode]
                 && table_metadata.getMode() == ObjectStorageQueueMode::ORDERED
                 && table_metadata.buckets <= 1 && table_metadata.processing_threads_num <= 1)
