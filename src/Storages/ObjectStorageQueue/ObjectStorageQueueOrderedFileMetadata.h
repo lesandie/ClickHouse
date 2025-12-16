@@ -60,6 +60,8 @@ public:
         std::vector<std::string> & paths,
         const std::filesystem::path & zk_path_,
         size_t buckets_num,
+        const String & keeper_name,
+        const ContextPtr & context,
         LoggerPtr log);
 
     void prepareProcessedAtStartRequests(Coordination::Requests & requests) override;
@@ -82,6 +84,8 @@ private:
         NodeMetadata & result,
         Coordination::Stat * stat,
         const std::string & processed_node_path_,
+        const ContextPtr & context_,
+        const String & keeper_name_,
         LoggerPtr log_);
 
     void doPrepareProcessedRequests(

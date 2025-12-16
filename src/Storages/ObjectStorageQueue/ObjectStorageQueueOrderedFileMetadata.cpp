@@ -202,20 +202,23 @@ bool ObjectStorageQueueOrderedFileMetadata::getMaxProcessedFile(
     Coordination::Stat * stat,
     LoggerPtr log_)
 {
-    return getMaxProcessedFile(result, stat, processed_node_path, log_);
+    return getMaxProcessedFile(result, stat, processed_node_path, context, keeper_name, log_);
 }
 
 bool ObjectStorageQueueOrderedFileMetadata::getMaxProcessedFile(
     NodeMetadata & result,
     Coordination::Stat * stat,
     const std::string & processed_node_path_,
+    const ContextPtr & context_,
+    const String & keeper_name_,
     LoggerPtr log_)
 {
     std::string data;
     bool processed_node_exists = false;
+    auto context_ptr = context_ ? context_ : Context::getGlobalContextInstance();
     ObjectStorageQueueMetadata::getKeeperRetriesControl(log_).retryLoop([&]
     {
-        processed_node_exists = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log_)->tryGet(processed_node_path_, data, stat);
+        processed_node_exists = ObjectStorageQueueMetadata::getZooKeeper(context_ptr, keeper_name_, log_)->tryGet(processed_node_path_, data, stat);
     });
     if (processed_node_exists)
     {
@@ -478,7 +481,7 @@ void ObjectStorageQueueOrderedFileMetadata::doPrepareProcessedRequests(
 {
     NodeMetadata processed_node;
     Coordination::Stat processed_node_stat;
-    if (getMaxProcessedFile(processed_node, &processed_node_stat, processed_node_path_, log))
+    if (getMaxProcessedFile(processed_node, &processed_node_stat, processed_node_path_, context, keeper_name, log))
     {
         LOG_TEST(log, "Current max processed file: {}, condition less: {}",
                  processed_node.file_path, bool(path <= processed_node.file_path));
@@ -539,6 +542,8 @@ void ObjectStorageQueueOrderedFileMetadata::migrateToBuckets(const std::string &
             processed_node,
             &processed_node_stat,
             old_processed_path,
+            context,
+            keeper_name,
             log);
 
         if (!has_processed_node)
@@ -625,6 +630,8 @@ void ObjectStorageQueueOrderedFileMetadata::filterOutProcessedAndFailed(
     std::vector<std::string> & paths,
     const std::filesystem::path & zk_path_,
     size_t buckets_num,
+    const String & keeper_name,
+    const ContextPtr & context,
     LoggerPtr log_)
 {
     const bool use_buckets_for_processing = buckets_num > 1;
@@ -639,7 +646,7 @@ void ObjectStorageQueueOrderedFileMetadata::filterOutProcessedAndFailed(
             : getProcessedPathWithoutBucket(zk_path_);
 
         NodeMetadata max_processed_file;
-        if (getMaxProcessedFile(max_processed_file, {}, processed_node_path, log_))
+        if (getMaxProcessedFile(max_processed_file, {}, processed_node_path, context, keeper_name, log_))
             max_processed_file_per_bucket[i] = std::move(max_processed_file.file_path);
     }
 

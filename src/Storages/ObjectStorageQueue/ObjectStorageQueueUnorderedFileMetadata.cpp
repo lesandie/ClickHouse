@@ -133,7 +133,11 @@ void ObjectStorageQueueUnorderedFileMetadata::prepareProcessedRequestsImpl(Coord
 }
 
 void ObjectStorageQueueUnorderedFileMetadata::filterOutProcessedAndFailed(
-    std::vector<std::string> & paths, const std::filesystem::path & zk_path_, LoggerPtr log_)
+    std::vector<std::string> & paths,
+    const std::filesystem::path & zk_path_,
+    const String & keeper_name_,
+    const ContextPtr & context_,
+    LoggerPtr log_)
 {
     std::vector<std::string> check_paths;
     for (const auto & path : paths)
@@ -144,9 +148,10 @@ void ObjectStorageQueueUnorderedFileMetadata::filterOutProcessedAndFailed(
     }
 
     zkutil::ZooKeeper::MultiTryGetResponse responses;
+    auto context_ptr = context_ ? context_ : Context::getGlobalContextInstance();
     ObjectStorageQueueMetadata::getKeeperRetriesControl(log_).retryLoop([&]
     {
-        responses = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log_)->tryGet(check_paths);
+        responses = ObjectStorageQueueMetadata::getZooKeeper(context_ptr, keeper_name_, log_)->tryGet(check_paths);
     });
 
     auto check_code = [&](auto code, const std::string & path)

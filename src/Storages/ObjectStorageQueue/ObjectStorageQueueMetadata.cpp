@@ -185,12 +185,12 @@ ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(
     return std::make_shared<ZooKeeperWithFaultInjection>(zk_client);
 }
 
-ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(LoggerPtr log) const
+ZooKeeperWithFaultInjection::Ptr ObjectStorageQueueMetadata::getZooKeeper(LoggerPtr logger) const
 {
     auto context_ptr = context.lock();
     if (!context_ptr)
         context_ptr = Context::getGlobalContextInstance();
-    return getZooKeeper(context_ptr, keeper_name, log);
+    return getZooKeeper(context_ptr, keeper_name, logger);
 }
 
 ZooKeeperRetriesControl ObjectStorageQueueMetadata::getKeeperRetriesControl(LoggerPtr log)
@@ -205,6 +205,14 @@ ZooKeeperRetriesControl ObjectStorageQueueMetadata::getKeeperRetriesControl(Logg
             settings[Setting::keeper_retry_initial_backoff_ms],
             settings[Setting::keeper_retry_max_backoff_ms],
             context->getProcessListElement()}};
+}
+
+ContextPtr ObjectStorageQueueMetadata::getContext() const
+{
+    auto context_ptr = context.lock();
+    if (!context_ptr)
+        context_ptr = Context::getGlobalContextInstance();
+    return context_ptr;
 }
 
 void ObjectStorageQueueMetadata::startup()
@@ -312,10 +320,10 @@ ObjectStorageQueueMetadata::tryAcquireBucket(const Bucket & bucket)
         log);
 }
 
-void ObjectStorageQueueMetadata::alterSettings(const SettingsChanges & changes, const ContextPtr & context)
+void ObjectStorageQueueMetadata::alterSettings(const SettingsChanges & changes, const ContextPtr & query_context)
 {
-    bool is_initial_query = context->getClientInfo().query_kind == ClientInfo::QueryKind::INITIAL_QUERY ||
-                            (context->getZooKeeperMetadataTransaction() && context->getZooKeeperMetadataTransaction()->isInitialQuery());
+    bool is_initial_query = query_context->getClientInfo().query_kind == ClientInfo::QueryKind::INITIAL_QUERY ||
+                            (query_context->getZooKeeperMetadataTransaction() && query_context->getZooKeeperMetadataTransaction()->isInitialQuery());
 
     const fs::path alter_settings_lock_path = zookeeper_path / "alter_settings_lock";
     zkutil::EphemeralNodeHolder::Ptr alter_settings_lock;

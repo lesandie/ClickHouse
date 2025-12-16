@@ -152,6 +152,8 @@ public:
     ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr tryAcquireBucket(const Bucket & bucket);
 
     std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(LoggerPtr log) const;
+    ContextPtr getContext() const;
+    const String & getKeeperName() const { return keeper_name; }
     static std::shared_ptr<ZooKeeperWithFaultInjection> getZooKeeper(
         const ContextPtr & context,
         const String & keeper_name,
