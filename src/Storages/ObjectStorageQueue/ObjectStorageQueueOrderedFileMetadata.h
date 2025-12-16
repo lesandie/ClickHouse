@@ -31,6 +31,8 @@ public:
         size_t max_loading_retries_,
         std::atomic<size_t> & metadata_ref_count_,
         bool use_persistent_processing_nodes_,
+        const String & keeper_name_,
+        ContextPtr context_,
         LoggerPtr log_);
 
     struct BucketHolder;
@@ -42,6 +44,8 @@ public:
     static BucketHolderPtr tryAcquireBucket(
         const std::filesystem::path & zk_path,
         const Bucket & bucket,
+        const String & keeper_name,
+        const ContextPtr & context,
         bool use_persistent_processing_nodes_,
         LoggerPtr log_);
 
@@ -92,6 +96,8 @@ struct ObjectStorageQueueOrderedFileMetadata::BucketHolder : private boost::nonc
         const Bucket & bucket_,
         const std::string & bucket_lock_path_,
         const std::string & processor_info_,
+        const String & keeper_name_,
+        ContextPtr context_,
         LoggerPtr log_);
 
     ~BucketHolder();
@@ -111,6 +117,8 @@ private:
     bool released = false;
     bool finished = false;
     LoggerPtr log;
+    const String keeper_name;
+    const ContextPtr context;
 };
 
 }

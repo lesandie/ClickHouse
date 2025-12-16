@@ -52,12 +52,16 @@ ObjectStorageQueueOrderedFileMetadata::BucketHolder::BucketHolder(
     const Bucket & bucket_,
     const std::string & bucket_lock_path_,
     const std::string & processor_info_,
+    const String & keeper_name_,
+    ContextPtr context_,
     LoggerPtr log_)
     : bucket_info(std::make_shared<BucketInfo>(BucketInfo{
         .bucket = bucket_,
         .bucket_lock_path = bucket_lock_path_,
         .processor_info = processor_info_ }))
     , log(log_)
+    , keeper_name(keeper_name_)
+    , context(std::move(context_))
 {
 #ifdef DEBUG_OR_SANITIZER_BUILD
     ObjectStorageQueueMetadata::getKeeperRetriesControl(log).retryLoop([&]
@@ -230,9 +234,12 @@ ObjectStorageQueueOrderedFileMetadata::Bucket ObjectStorageQueueOrderedFileMetad
 ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr ObjectStorageQueueOrderedFileMetadata::tryAcquireBucket(
     const std::filesystem::path & zk_path,
     const Bucket & bucket,
+    const String & keeper_name,
+    const ContextPtr & context,
     bool /*use_persistent_processing_nodes_*/,
     LoggerPtr log_)
 {
+    auto context_ptr = context ? context : Context::getGlobalContextInstance();
     auto zk_retry = ObjectStorageQueueMetadata::getKeeperRetriesControl(log_);
     const auto bucket_path = zk_path / "buckets" / toString(bucket);
 
@@ -240,7 +247,7 @@ ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr ObjectStorageQueueOrdered
     bool bucket_exists = false;
     zk_retry.retryLoop([&]
     {
-        bucket_exists = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log_)->exists(bucket_path);
+        bucket_exists = ObjectStorageQueueMetadata::getZooKeeper(context_ptr, keeper_name, log_)->exists(bucket_path);
     });
     chassert(bucket_exists);
 #endif
@@ -251,7 +258,7 @@ ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr ObjectStorageQueueOrdered
     Coordination::Error code;
     zk_retry.retryLoop([&]
     {
-        auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(context, keeper_name, log_);
+        auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(context_ptr, keeper_name, log_);
         std::string data;
         /// If it is a retry, we could have failed after actually successfully executing the request.
         /// So here we check if we succeeded by checking `processor_info` of the processing node.
@@ -276,6 +283,8 @@ ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr ObjectStorageQueueOrdered
             bucket,
             bucket_lock_path,
             processor_info,
+            keeper_name,
+            context_ptr,
             log_);
     }
 

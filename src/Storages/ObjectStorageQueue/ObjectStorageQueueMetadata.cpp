@@ -299,7 +299,17 @@ ObjectStorageQueueMetadata::Bucket ObjectStorageQueueMetadata::getBucketForPath(
 ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr
 ObjectStorageQueueMetadata::tryAcquireBucket(const Bucket & bucket)
 {
-    return ObjectStorageQueueOrderedFileMetadata::tryAcquireBucket(zookeeper_path, bucket, use_persistent_processing_nodes, log);
+    auto context_ptr = context.lock();
+    if (!context_ptr)
+        context_ptr = Context::getGlobalContextInstance();
+
+    return ObjectStorageQueueOrderedFileMetadata::tryAcquireBucket(
+        zookeeper_path,
+        bucket,
+        keeper_name,
+        context_ptr,
+        use_persistent_processing_nodes,
+        log);
 }
 
 void ObjectStorageQueueMetadata::alterSettings(const SettingsChanges & changes, const ContextPtr & context)
