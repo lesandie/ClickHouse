@@ -1446,7 +1446,10 @@ ObjectStorageQueueSettings StorageObjectStorageQueue::getSettings() const
     const auto & table_metadata = getTableMetadata();
     settings[ObjectStorageQueueSetting::mode] = table_metadata.mode;
     settings[ObjectStorageQueueSetting::after_processing] = table_metadata.after_processing;
-    settings[ObjectStorageQueueSetting::keeper_path] = zk_path;
+    if (zookeeper_name == zkutil::DEFAULT_ZOOKEEPER_NAME)
+        settings[ObjectStorageQueueSetting::keeper_path] = zk_path.string();
+    else
+        settings[ObjectStorageQueueSetting::keeper_path] = fmt::format("{}:{}", zookeeper_name, zk_path.string());
     settings[ObjectStorageQueueSetting::loading_retries] = table_metadata.loading_retries;
     settings[ObjectStorageQueueSetting::processing_threads_num] = table_metadata.processing_threads_num;
     settings[ObjectStorageQueueSetting::parallel_inserts] = table_metadata.parallel_inserts;
@@ -1517,23 +1520,31 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
     if (zk_path_prefix.empty())
         zk_path_prefix = "/";
 
+    auto appendWithPrefix = [&](const String & relative_path) -> String
+    {
+        return (fs::path(zk_path_prefix) / relative_path).string();
+    };
+
     std::string result_zk_path;
     String resolved_zookeeper_name(zkutil::DEFAULT_ZOOKEEPER_NAME.data(), zkutil::DEFAULT_ZOOKEEPER_NAME.size());
     if (queue_settings[ObjectStorageQueueSetting::keeper_path].changed)
     {
-        /// We do not add table uuid here on purpose.
-        result_zk_path = fs::path(zk_path_prefix) / queue_settings[ObjectStorageQueueSetting::keeper_path].value;
+        String configured_path = queue_settings[ObjectStorageQueueSetting::keeper_path].value;
 
-        Macros::MacroExpansionInfo info;
-        info.table_id.uuid = table_id.uuid;
-        result_zk_path = context_->getMacros()->expand(result_zk_path, info);
+        bool starts_with_slash = !configured_path.empty() && configured_path.front() == '/';
+        bool has_keeper_prefix = zkutil::extractZooKeeperName(configured_path) != zkutil::DEFAULT_ZOOKEEPER_NAME;
+
+        if (has_keeper_prefix || starts_with_slash)
+            result_zk_path = configured_path;
+        else
+            result_zk_path = appendWithPrefix(configured_path);
     }
     else
     {
         if (database_uuid == UUIDHelpers::Nil)
             database_uuid = DatabaseCatalog::instance().getDatabase(table_id.database_name)->getUUID();
 
-        result_zk_path = fs::path(zk_path_prefix) / toString(database_uuid) / toString(table_id.uuid);
+        result_zk_path = (fs::path(zk_path_prefix) / toString(database_uuid) / toString(table_id.uuid)).string();
     }
     resolved_zookeeper_name = zkutil::extractZooKeeperName(result_zk_path);
     if (zookeeper_name_out)
