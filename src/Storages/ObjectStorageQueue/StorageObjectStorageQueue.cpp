@@ -1510,10 +1510,9 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
     const StorageID & table_id,
     const Settings & settings,
     const ObjectStorageQueueSettings & queue_settings,
-        UUID database_uuid,
-        String * zookeeper_name_out)
+    UUID database_uuid,
+    String * zookeeper_name_out)
 {
-    (void)context_;
     /// keeper_path setting can be set explicitly by the user in the CREATE query, or filled in registerQueueStorage.cpp.
     /// We also use keeper_path to determine whether we move it between databases, since the default path contains UUID of the database.
 
@@ -1547,6 +1546,14 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
 
         result_zk_path = (fs::path(zk_path_prefix) / toString(database_uuid) / toString(table_id.uuid)).string();
     }
+
+    if (context_ && result_zk_path.find('{') != String::npos)
+    {
+        Macros::MacroExpansionInfo info;
+        info.table_id = table_id;
+        result_zk_path = context_->getMacros()->expand(result_zk_path, info);
+    }
+
     resolved_zookeeper_name = zkutil::extractZooKeeperName(result_zk_path);
     if (zookeeper_name_out)
         *zookeeper_name_out = resolved_zookeeper_name;
