@@ -621,7 +621,7 @@ ObjectStorageQueueSource::FileIterator::getNextKeyFromAcquiredBucket(size_t proc
     {
         ObjectStorageQueueMetadata::getKeeperRetriesControl(log).retryLoop([&]
         {
-            auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(log);
+            auto zk_client = metadata->getZooKeeper();
             chassert(current_bucket_holder->checkBucketOwnership(zk_client));
         });
     }

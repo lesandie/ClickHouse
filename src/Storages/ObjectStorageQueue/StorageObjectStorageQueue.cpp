@@ -1510,9 +1510,10 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
     const StorageID & table_id,
     const Settings & settings,
     const ObjectStorageQueueSettings & queue_settings,
-    UUID database_uuid,
-    String * zookeeper_name_out)
+        UUID database_uuid,
+        String * zookeeper_name_out)
 {
+    (void)context_;
     /// keeper_path setting can be set explicitly by the user in the CREATE query, or filled in registerQueueStorage.cpp.
     /// We also use keeper_path to determine whether we move it between databases, since the default path contains UUID of the database.
 
