@@ -218,7 +218,9 @@ Path to the queue metadata in ZooKeeper. If not specified explicitly, ClickHouse
 
 To target an auxiliary ZooKeeper cluster, prefix the value with the configured name, for example `analytics_keeper:/clickhouse/queue/orders`. The name must exist in `<auxiliary_zookeepers>`; otherwise the engine reports `Unknown auxiliary ZooKeeper name ...`. The full string (including the prefix) is preserved in `SHOW CREATE TABLE` so the statement can be replicated verbatim.
 
-Possible values: string.
+Possible values:
+
+- String.
 
 Default value: `/`.
 

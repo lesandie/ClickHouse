@@ -250,23 +250,23 @@ ObjectStorageQueueMetadata::FileMetadataPtr ObjectStorageQueueMetadata::getFileM
             return std::make_shared<ObjectStorageQueueOrderedFileMetadata>(
                 zookeeper_path,
                 path,
+                zookeeper_name,
                 file_status,
                 bucket_info,
                 buckets_num,
                 table_metadata.loading_retries,
                 *metadata_ref_count,
                 use_persistent_processing_nodes,
-                zookeeper_name,
                 log);
         case ObjectStorageQueueMode::UNORDERED:
             return std::make_shared<ObjectStorageQueueUnorderedFileMetadata>(
                 zookeeper_path,
                 path,
+                zookeeper_name,
                 file_status,
                 table_metadata.loading_retries,
                 *metadata_ref_count,
                 use_persistent_processing_nodes,
-                zookeeper_name,
                 log);
     }
 }

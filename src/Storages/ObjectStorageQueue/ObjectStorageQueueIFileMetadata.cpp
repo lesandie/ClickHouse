@@ -124,6 +124,7 @@ ObjectStorageQueueIFileMetadata::NodeMetadata ObjectStorageQueueIFileMetadata::N
 
 ObjectStorageQueueIFileMetadata::ObjectStorageQueueIFileMetadata(
     const std::string & path_,
+    const std::string & zookeeper_name_,
     const std::string & processing_node_path_,
     const std::string & processed_node_path_,
     const std::string & failed_node_path_,
@@ -131,15 +132,14 @@ ObjectStorageQueueIFileMetadata::ObjectStorageQueueIFileMetadata(
     size_t max_loading_retries_,
     std::atomic<size_t> & metadata_ref_count_,
     bool use_persistent_processing_nodes_,
-    const std::string & zookeeper_name_,
     LoggerPtr log_)
     : path(path_)
+    , zookeeper_name(zookeeper_name_)
     , node_name(getNodeName(path_))
     , file_status(file_status_)
     , max_loading_retries(max_loading_retries_)
     , metadata_ref_count(metadata_ref_count_)
     , use_persistent_processing_nodes(use_persistent_processing_nodes_)
-    , zookeeper_name(zookeeper_name_)
     , processing_node_path(processing_node_path_)
     , processed_node_path(processed_node_path_)
     , failed_node_path(failed_node_path_)

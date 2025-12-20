@@ -82,13 +82,13 @@ public:
     /// because its default depends on the CPU cores on the server);
     static ObjectStorageQueueTableMetadata syncWithKeeper(
         const fs::path & zookeeper_path,
+        const String & zookeeper_name,
         const ObjectStorageQueueSettings & settings,
         const ColumnsDescription & columns,
         const std::string & format,
         const ContextPtr & context,
         bool is_attach,
-        LoggerPtr log,
-        const String & zookeeper_name);
+        LoggerPtr log);
     /// Alter settings in keeper metadata
     /// (rewrites what we write in syncWithKeeper()).
     void alterSettings(const SettingsChanges & changes, const ContextPtr & context);
