@@ -315,15 +315,13 @@ StorageObjectStorageQueue::StorageObjectStorageQueue(
     setVirtuals(VirtualColumnUtils::getVirtualsForFileLikeStorage(storage_metadata.columns, context_));
     setInMemoryMetadata(storage_metadata);
 
-    String resolved_zookeeper_name;
     zk_path = chooseZooKeeperPath(
         getContext(),
         table_id_,
         context_->getSettingsRef(),
         *queue_settings_,
         UUIDHelpers::Nil,
-        &resolved_zookeeper_name);
-    zookeeper_name = resolved_zookeeper_name;
+        &zookeeper_name);
 
     LOG_INFO(log, "Using zookeeper path: {}", zk_path.string());
 
@@ -1520,13 +1518,8 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
     if (zk_path_prefix.empty())
         zk_path_prefix = "/";
 
-    auto appendWithPrefix = [&](const String & relative_path) -> String
-    {
-        return (fs::path(zk_path_prefix) / relative_path).string();
-    };
-
     std::string result_zk_path;
-    String resolved_zookeeper_name(zkutil::DEFAULT_ZOOKEEPER_NAME.data(), zkutil::DEFAULT_ZOOKEEPER_NAME.size());
+    String resolved_zookeeper_name;
     if (queue_settings[ObjectStorageQueueSetting::keeper_path].changed)
     {
         String configured_path = queue_settings[ObjectStorageQueueSetting::keeper_path].value;
@@ -1537,14 +1530,14 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
         if (has_keeper_prefix || starts_with_slash)
             result_zk_path = configured_path;
         else
-            result_zk_path = appendWithPrefix(configured_path);
+            result_zk_path = (fs::path(zk_path_prefix) / configured_path).string();
     }
     else
     {
         if (database_uuid == UUIDHelpers::Nil)
             database_uuid = DatabaseCatalog::instance().getDatabase(table_id.database_name)->getUUID();
 
-        result_zk_path = (fs::path(zk_path_prefix) / toString(database_uuid) / toString(table_id.uuid)).string();
+        result_zk_path = fs::path(zk_path_prefix) / toString(database_uuid) / toString(table_id.uuid);
     }
 
     if (context_ && result_zk_path.find('{') != String::npos)
@@ -1554,9 +1547,8 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
         result_zk_path = context_->getMacros()->expand(result_zk_path, info);
     }
 
-    resolved_zookeeper_name = zkutil::extractZooKeeperName(result_zk_path);
     if (zookeeper_name_out)
-        *zookeeper_name_out = resolved_zookeeper_name;
+        *zookeeper_name_out = zkutil::extractZooKeeperName(result_zk_path);
     return zkutil::extractZooKeeperPath(result_zk_path, true);
 }
 

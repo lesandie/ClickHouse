@@ -18,7 +18,7 @@ namespace
 {
 std::string makeMetadataKey(const std::string & zookeeper_name, const std::string & zookeeper_path)
 {
-    if (zookeeper_name.empty() || zookeeper_name == zkutil::DEFAULT_ZOOKEEPER_NAME)
+    if (zookeeper_name == zkutil::DEFAULT_ZOOKEEPER_NAME)
         return zookeeper_path;
     return zookeeper_name + ":" + zookeeper_path;
 }
@@ -218,7 +218,7 @@ std::unordered_map<std::string, ObjectStorageQueueMetadataFactory::FilesMetadata
     {
         const auto & name = metadata.metadata->getZooKeeperName();
         const auto & path = metadata.metadata->getPath();
-        result.emplace(makeMetadataKey(name, path), metadata.metadata);
+        result.emplace(key, metadata.metadata);
     }
     return result;
 }

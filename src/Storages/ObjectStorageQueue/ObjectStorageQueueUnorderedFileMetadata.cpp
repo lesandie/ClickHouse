@@ -39,7 +39,7 @@ ObjectStorageQueueUnorderedFileMetadata::prepareProcessingRequestsImpl(
     Coordination::Requests & requests,
     const std::string & processing_id)
 {
-        auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(log, zookeeper_name);
+    auto zk_client = ObjectStorageQueueMetadata::getZooKeeper(log, zookeeper_name);
     processor_info = getProcessorInfo(processing_id);
 
     SetProcessingResponseIndexes result;
