@@ -1519,7 +1519,6 @@ String StorageObjectStorageQueue::chooseZooKeeperPath(
         zk_path_prefix = "/";
 
     std::string result_zk_path;
-    String resolved_zookeeper_name;
     if (queue_settings[ObjectStorageQueueSetting::keeper_path].changed)
     {
         String configured_path = queue_settings[ObjectStorageQueueSetting::keeper_path].value;
