@@ -63,7 +63,8 @@ public:
         size_t cleanup_interval_max_ms_,
         bool use_persistent_processing_nodes_,
         size_t persistent_processing_nodes_ttl_seconds_,
-        size_t keeper_multiread_batch_size_);
+        size_t keeper_multiread_batch_size_,
+        bool path_with_hive_partitioning_);
 
     ~ObjectStorageQueueMetadata();
 
@@ -88,6 +89,7 @@ public:
         const std::string & format,
         const ContextPtr & context,
         bool is_attach,
+        bool is_path_with_hive_partitioning,
         LoggerPtr log);
     /// Alter settings in keeper metadata
     /// (rewrites what we write in syncWithKeeper()).
@@ -146,6 +148,7 @@ public:
     size_t getBucketsNum() const { return buckets_num; }
     /// Get bucket by file path in case of bucket-based processing.
     Bucket getBucketForPath(const std::string & path) const;
+    static Bucket getBucketForPath(const std::string & path, size_t buckets_num);
     /// Acquire (take unique ownership of) bucket for processing.
     ObjectStorageQueueOrderedFileMetadata::BucketHolderPtr tryAcquireBucket(const Bucket & bucket);
 
@@ -156,6 +159,8 @@ public:
 
     /// Set local ref count for metadata.
     void setMetadataRefCount(std::atomic<size_t> & ref_count_) { chassert(!metadata_ref_count); metadata_ref_count = &ref_count_; }
+
+    bool isPathWithHivePartitioning() const { return is_path_with_hive_partitioning; }
 
     void updateSettings(const SettingsChanges & changes);
 
@@ -215,6 +220,8 @@ private:
     /// Number of S3(Azure)Queue tables on the same
     /// clickhouse server instance referencing the same metadata object.
     std::atomic<size_t> * metadata_ref_count = nullptr;
+
+    const bool is_path_with_hive_partitioning = false;
 };
 
 using ObjectStorageQueueMetadataPtr = std::unique_ptr<ObjectStorageQueueMetadata>;

@@ -138,7 +138,8 @@ ObjectStorageQueueMetadata::ObjectStorageQueueMetadata(
     size_t cleanup_interval_max_ms_,
     bool use_persistent_processing_nodes_,
     size_t persistent_processing_nodes_ttl_seconds_,
-    size_t keeper_multiread_batch_size_)
+    size_t keeper_multiread_batch_size_,
+    bool is_path_with_hive_partitioning_)
     : table_metadata(table_metadata_)
     , storage_type(storage_type_)
     , mode(table_metadata.getMode())
@@ -155,6 +156,7 @@ ObjectStorageQueueMetadata::ObjectStorageQueueMetadata(
         zookeeper_name_.empty() ? "" : zookeeper_name_ + ":",
         zookeeper_path_.string())))
     , local_file_statuses(std::make_shared<LocalFileStatuses>())
+    , is_path_with_hive_partitioning(is_path_with_hive_partitioning_)
 {
     LOG_TRACE(
         log, "Mode: {}, buckets: {}, processing threads: {}, result buckets num: {}, use persistent processing nodes: {}",
@@ -250,23 +252,24 @@ ObjectStorageQueueMetadata::FileMetadataPtr ObjectStorageQueueMetadata::getFileM
             return std::make_shared<ObjectStorageQueueOrderedFileMetadata>(
                 zookeeper_path,
                 path,
-                zookeeper_name,
                 file_status,
                 bucket_info,
                 buckets_num,
                 table_metadata.loading_retries,
                 *metadata_ref_count,
                 use_persistent_processing_nodes,
+                zookeeper_name,
+                is_path_with_hive_partitioning,
                 log);
         case ObjectStorageQueueMode::UNORDERED:
             return std::make_shared<ObjectStorageQueueUnorderedFileMetadata>(
                 zookeeper_path,
                 path,
-                zookeeper_name,
                 file_status,
                 table_metadata.loading_retries,
                 *metadata_ref_count,
                 use_persistent_processing_nodes,
+                zookeeper_name,
                 log);
     }
 }
@@ -277,6 +280,11 @@ bool ObjectStorageQueueMetadata::useBucketsForProcessing() const
 }
 
 ObjectStorageQueueMetadata::Bucket ObjectStorageQueueMetadata::getBucketForPath(const std::string & path) const
+{
+    return getBucketForPath(path, buckets_num);
+}
+
+ObjectStorageQueueMetadata::Bucket ObjectStorageQueueMetadata::getBucketForPath(const std::string & path, size_t buckets_num)
 {
     return ObjectStorageQueueOrderedFileMetadata::getBucketForPath(path, buckets_num);
 }
@@ -400,8 +408,7 @@ void ObjectStorageQueueMetadata::alterSettings(const SettingsChanges & changes, 
             const auto value = change.value.safeGet<UInt64>();
             if (table_metadata.buckets == value)
             {
-                LOG_TRACE(log, "Setting `buckets` already equals {}. "
-                        "Will do nothing", value);
+                LOG_TRACE(log, "Setting `buckets` already equals {}. Will do nothing", value);
                 continue;
             }
             if (table_metadata.buckets > 1)
@@ -437,24 +444,26 @@ void ObjectStorageQueueMetadata::migrateToBucketsInKeeper(size_t value)
 {
     chassert(table_metadata.buckets == 0 || table_metadata.buckets == 1);
     chassert(buckets_num == 1, "Buckets: " + toString(buckets_num));
+    LOG_TRACE(log, "Changing buckets value from {} to {}", table_metadata.buckets.load(), value);
     ObjectStorageQueueOrderedFileMetadata::migrateToBuckets(
         zookeeper_path,
         value,
         /* prev_value */table_metadata.buckets,
         zookeeper_name);
-    buckets_num = value;
     table_metadata.buckets = value;
+    buckets_num = table_metadata.getBucketsNum();
 }
 
 ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
     const fs::path & zookeeper_path,
+    const String & zookeeper_name,
     const ObjectStorageQueueSettings & settings,
     const ColumnsDescription & columns,
     const std::string & format,
     const ContextPtr & context,
     bool is_attach,
-    LoggerPtr log,
-    const String & zookeeper_name)
+    bool is_path_with_hive_partitioning,
+    LoggerPtr log)
 {
     ObjectStorageQueueTableMetadata table_metadata(settings, columns, format);
 
@@ -549,6 +558,7 @@ ObjectStorageQueueTableMetadata ObjectStorageQueueMetadata::syncWithKeeper(
                     noop,
                     /* use_persistent_processing_nodes */false, /// Processing nodes will not be created.
                     zookeeper_name,
+                    is_path_with_hive_partitioning,
                     log).prepareProcessedAtStartRequests(requests);
             }
 
