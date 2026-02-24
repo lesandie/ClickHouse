@@ -8,6 +8,7 @@
 #include <Poco/Util/AbstractConfiguration.h>
 #include <Common/logger_useful.h>
 #include <Common/CurrentMetrics.h>
+#include <Core/QualifiedTableName.h>
 #include <numeric>
 
 
@@ -160,6 +161,38 @@ LoadTaskPtrs TablesLoader::startupTablesAsync(LoadJobSet startup_after)
             getGoals(startup_database[database_name], startup_after),
             strictness_mode);
         result.push_back(task);
+    }
+
+    return result;
+}
+
+LoadTaskPtrs TablesLoader::getStartupTasksForFastTrack(
+    const std::unordered_set<String> & databases_to_fast_track,
+    const std::unordered_set<String> & tables_to_fast_track) const
+{
+    if (databases_to_fast_track.empty() && tables_to_fast_track.empty())
+        return {};
+
+    LoadTaskPtrs result;
+    std::unordered_set<const LoadTask *> seen;
+    for (const auto & [table_full_name, task] : startup_table)
+    {
+        if (!task)
+            continue;
+
+        bool match = false;
+        if (tables_to_fast_track.contains(table_full_name))
+        {
+            match = true;
+        }
+        else if (!databases_to_fast_track.empty())
+        {
+            if (auto parsed = QualifiedTableName::tryParseFromString(table_full_name))
+                match = databases_to_fast_track.contains(parsed->database);
+        }
+
+        if (match && seen.insert(task.get()).second)
+            result.push_back(task);
     }
 
     return result;

@@ -3,6 +3,7 @@
 #include <map>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <Core/QualifiedTableName.h>
 #include <Core/Types.h>
 #include <Databases/LoadingStrictnessLevel.h>
@@ -63,6 +64,12 @@ public:
     /// Note that for every table startup an extra dependency on that table loading will be added along with `startup_after`.
     /// Must be called only after `loadTablesAsync()`.
     [[nodiscard]] LoadTaskPtrs startupTablesAsync(LoadJobSet startup_after = {});
+
+    /// Get startup tasks for tables in specified databases or by full table names.
+    /// Must be called only after `startupTablesAsync()`.
+    [[nodiscard]] LoadTaskPtrs getStartupTasksForFastTrack(
+        const std::unordered_set<String> & databases_to_fast_track,
+        const std::unordered_set<String> & tables_to_fast_track) const;
 
 private:
     ContextMutablePtr global_context;

@@ -912,6 +912,17 @@ The policy on how to perform a scheduling of CPU slots specified by `concurrent_
     <async_load_databases>true</async_load_databases>
     ```
     )", 0) \
+    DECLARE(String, async_load_databases_fast_track, "", R"(
+    Comma-separated list of databases or tables to prioritize during asynchronous loading.
+    Entries can be either `db_name` or `db_name.table_name` and may use quoted identifiers.
+    Matching tables are prioritized to the foreground pool (priority is never lowered by the async loader).
+
+    **Example**
+
+    ```xml
+    <async_load_databases_fast_track>db1,db2.table_a,`db 3`.`table b`</async_load_databases_fast_track>
+    ```
+    )", 0) \
     DECLARE(Bool, async_load_system_database, false, R"(
     Asynchronous loading of system tables. Helpful if there is a high amount of log tables and parts in the `system` database. Independent of the `async_load_databases` setting.
 

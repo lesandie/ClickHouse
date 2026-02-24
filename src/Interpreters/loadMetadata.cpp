@@ -19,10 +19,17 @@
 
 
 #include <Core/Settings.h>
+#include <Core/QualifiedTableName.h>
 #include <Common/escapeForFileName.h>
 #include <Common/logger_useful.h>
 #include <Common/typeid_cast.h>
+#include <Common/StringUtils.h>
+#include <base/find_symbols.h>
 #include <IO/ReadSettings.h>
+#include <Parsers/ASTIdentifier.h>
+#include <Parsers/CommonParsers.h>
+#include <Parsers/ExpressionElementParsers.h>
+#include <Parsers/Lexer.h>
 
 #include <filesystem>
 
@@ -201,6 +208,109 @@ void dropRestoringDatabasesForTableDropping(ContextMutablePtr context, const std
     }
 }
 
+struct AsyncLoadFastTrackList
+{
+    std::unordered_set<String> databases;
+    std::unordered_set<String> tables;
+};
+
+namespace Setting
+{
+    extern const SettingsUInt64 max_query_size;
+    extern const SettingsUInt64 max_parser_depth;
+    extern const SettingsUInt64 max_parser_backtracks;
+}
+
+struct ParsedFastTrackEntry
+{
+    bool is_database = false;
+    String database;
+    String table;
+};
+
+static std::optional<ParsedFastTrackEntry> tryParseFastTrackEntry(const String & entry, const Settings & settings)
+{
+    Tokens tokens(entry.data(), entry.data() + entry.size(), settings[Setting::max_query_size]);
+    IParser::Pos pos(
+        tokens,
+        static_cast<unsigned>(settings[Setting::max_parser_depth]),
+        static_cast<unsigned>(settings[Setting::max_parser_backtracks]));
+
+    Expected expected;
+    ParserIdentifier identifier_parser;
+    ParserToken dot_token(TokenType::Dot);
+
+    ASTPtr first_ast;
+    if (!identifier_parser.parse(pos, first_ast, expected))
+        return {};
+
+    String first_name = getIdentifierName(first_ast);
+
+    if (dot_token.ignore(pos))
+    {
+        ASTPtr second_ast;
+        if (!identifier_parser.parse(pos, second_ast, expected))
+            return {};
+        if (!pos->isEnd())
+            return {};
+
+        String second_name = getIdentifierName(second_ast);
+        if (first_name.empty() || second_name.empty())
+            return {};
+
+        ParsedFastTrackEntry result;
+        result.is_database = false;
+        result.database = std::move(first_name);
+        result.table = std::move(second_name);
+        return result;
+    }
+
+    if (!pos->isEnd())
+        return {};
+
+    ParsedFastTrackEntry result;
+    result.is_database = true;
+    result.database = std::move(first_name);
+    return result;
+}
+
+static AsyncLoadFastTrackList parseAsyncLoadFastTrackList(const String & value, const Settings & settings, LoggerPtr log)
+{
+    AsyncLoadFastTrackList result;
+    if (value.empty())
+        return result;
+
+    std::vector<String> parts;
+    splitInto<','>(parts, value, true);
+    for (auto & part : parts)
+    {
+        trim(part);
+        if (part.empty())
+            continue;
+
+        auto parsed = tryParseFastTrackEntry(part, settings);
+        if (!parsed)
+        {
+            LOG_WARNING(log, "Skipping invalid async_load_databases_fast_track entry '{}'", part);
+            continue;
+        }
+
+        if (parsed->is_database)
+        {
+            if (!parsed->database.empty())
+                result.databases.insert(parsed->database);
+            else
+                LOG_WARNING(log, "Skipping invalid async_load_databases_fast_track entry '{}'", part);
+            continue;
+        }
+
+        QualifiedTableName full_name{parsed->database, parsed->table};
+        result.tables.insert(full_name.getFullName());
+    }
+
+    return result;
+}
+
 LoadTaskPtrs loadMetadata(ContextMutablePtr context, const String & default_database_name, bool async_load_databases)
 {
     auto default_db_disk = Context::getGlobalContextInstance()->getDatabaseDisk();
@@ -312,6 +422,19 @@ LoadTaskPtrs loadMetadata(ContextMutablePtr context, const String & default_data
     if (async_load_databases)
     {
         LOG_INFO(log, "Start asynchronous loading of databases");
+
+        const auto & server_settings = context->getServerSettings();
+        const String & fast_track_value = server_settings[ServerSetting::async_load_databases_fast_track].value;
+        auto fast_track = parseAsyncLoadFastTrackList(fast_track_value, context->getSettingsRef(), log);
+        if (!fast_track.databases.empty() || !fast_track.tables.empty())
+        {
+            auto fast_track_tasks = loader.getStartupTasksForFastTrack(fast_track.databases, fast_track.tables);
+            if (!fast_track_tasks.empty())
+            {
+                LOG_INFO(log, "Prioritizing {} startup tasks from async_load_databases_fast_track", fast_track_tasks.size());
+                prioritizeLoad(TablesLoaderForegroundPoolId, fast_track_tasks);
+            }
+        }
 
         // Schedule all the jobs.
         // Note that to achieve behaviour similar to synchronous case (postponing of merges) we use priorities.
